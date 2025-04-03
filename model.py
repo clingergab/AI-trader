@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class DQN(nn.Module):
     """
@@ -7,7 +8,7 @@ class DQN(nn.Module):
     This neural network takes a state as input and outputs Q-values for each action.
     """
     
-    def __init__(self, state_size, action_size):
+    def __init__(self, state_size, action_size) -> None:
         """
         Initialize the DQN model.
         Args:
@@ -21,7 +22,7 @@ class DQN(nn.Module):
         self.fc2 = nn.Linear(64, 64)
         self.fc3 = nn.Linear(64, action_size)
         
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the network.
         Args:
@@ -29,6 +30,6 @@ class DQN(nn.Module):
         Returns:
             torch.Tensor: Q-values for each action
         """
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
         return self.fc3(x)

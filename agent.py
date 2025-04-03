@@ -6,23 +6,30 @@ import random
 from collections import deque
 from model import DQN
 
+
 class DQNAgent:
     """
     Deep Q-Network Agent for trading.
-    
     This agent uses a Deep Q-Network to learn optimal trading strategies.
     """
     
-    def __init__(self, state_size, action_size):
+    def __init__(self, state_size: int, action_size: int) -> None:
         """
         Initialize the DQN agent.
-        
         Args:
             state_size (int): Size of the state vector
             action_size (int): Number of possible actions
         """
         self.state_size = state_size
         self.action_size = action_size
+        
+        # Determine device (GPU if available, otherwise CPU)
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda:0")
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
         
         # Experience replay memory
         self.memory = deque(maxlen=2000)
@@ -35,17 +42,19 @@ class DQNAgent:
         self.learning_rate = 0.001
         
         # Initialize Q-network and optimizer
-        self.model = DQN(state_size, action_size)
+        self.model = DQN(state_size, action_size).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         self.criterion = nn.MSELoss()
         
         # For tracking inventory in evaluation
         self.inventory = []
     
-    def remember(self, state, action, reward, next_state, done):
+        # Enable cudnn benchmarking for faster performance
+        torch.backends.cudnn.benchmark = True
+    
+    def remember(self, state, action, reward, next_state, done) -> None:
         """
         Store experience in memory.
-        
         Args:
             state (numpy.array): Current state
             action (int): Action taken
@@ -55,13 +64,11 @@ class DQNAgent:
         """
         self.memory.append((state, action, reward, next_state, done))
     
-    def act(self, state):
+    def act(self, state: np.ndarray) -> int:
         """
         Choose an action based on the current state.
-        
         Args:
             state (numpy.array): Current state
-            
         Returns:
             int: Action to take
         """
@@ -70,81 +77,92 @@ class DQNAgent:
             return random.randrange(self.action_size)
         
         # Convert state to tensor for model input
-        state = torch.FloatTensor(state).unsqueeze(0)
+        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        # print(f"Input tensor device: {state.device}")  # Debugging line
         
         # Get action values
         with torch.no_grad():
             action_values = self.model(state)
+            # action = torch.argmax(action_values).item()
+            # print(f"State shape: {state.shape}, Q-values: {action_values.cpu().numpy()[0]}, Selected action: {action}")
         
         # Return action with highest value
         return torch.argmax(action_values).item()
     
-    def replay(self, batch_size):
+  
+    def replay(self, batch_size: int) -> None:
         """
         Train the model using experiences from memory.
-        
         Args:
             batch_size (int): Number of experiences to sample
         """
         # Check if we have enough experiences
         if len(self.memory) < batch_size:
             return
-        
+            
         # Sample random experiences
-        minibatch = random.sample(self.memory, batch_size)
+        batch = random.sample(self.memory, batch_size)
         
-        for state, action, reward, next_state, done in minibatch:
-            # Convert to tensors
-            state = torch.FloatTensor(state).unsqueeze(0)
+        # Pre-allocate arrays for better performance
+        states = np.zeros((batch_size, self.state_size))
+        next_states = np.zeros((batch_size, self.state_size))
+        actions = np.zeros(batch_size, dtype=np.int64)
+        rewards = np.zeros(batch_size)
+        dones = np.zeros(batch_size)
+        
+        # Fill the arrays
+        for i, (state, action, reward, next_state, done) in enumerate(batch):
+            states[i] = state
+            actions[i] = action
+            rewards[i] = reward
             
-            # If next_state is None (episode end), use zeros
             if next_state is not None:
-                next_state = torch.FloatTensor(next_state).unsqueeze(0)
+                next_states[i] = next_state
             
-            # Calculate target Q value
-            target = reward
-            if not done and next_state is not None:
-                with torch.no_grad():
-                    # Q(s', a') for all actions
-                    next_q_values = self.model(next_state)
-                    # Max Q(s', a')
-                    max_next_q = torch.max(next_q_values).item()
-                    # Q(s, a) = r + γ * max Q(s', a')
-                    target = reward + self.gamma * max_next_q
-            
-            # Current Q values
-            current_q = self.model(state)
-            
-            # Create target vector for all actions
-            target_f = current_q.clone().detach()
-            
-            # Update target for the action we took
-            target_f[0][action] = target
-            
-            # Zero gradients, perform backprop, and update weights
-            self.optimizer.zero_grad()
-            loss = self.criterion(current_q, target_f)
-            loss.backward()
-            self.optimizer.step()
+            dones[i] = float(done)
         
-        # Decay epsilon
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+        # Convert to tensors in one go (much more efficient)
+        states = torch.FloatTensor(states).to(self.device)
+        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
+        
+        # Compute current Q values
+        current_q_values = self.model(states).gather(1, actions)
+        
+        # Compute next Q values
+        with torch.no_grad():
+            next_q_values = self.model(next_states).max(1)[0]
+        
+        # Compute target Q values
+        target_q_values = rewards + (self.gamma * next_q_values * (1 - dones))
+        
+        # Compute loss and update model
+        loss = self.criterion(current_q_values.squeeze(), target_q_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+            
     
-    def save(self, filepath):
+    def save(self, filepath: str) -> None:
         """
         Save the model weights.
-        
         Args:
             filepath (str): Path to save the model
         """
         torch.save(self.model.state_dict(), filepath)
     
-    def load(self, filepath):
+    def load(self, filepath: str) -> None:
         """
         Load model weights.
         
         Args:
             filepath (str): Path to load the model from
         """
-        self.model.load_state_dict(torch.load(filepath))
+        # self.model.load_state_dict(torch.load(filepath))
+         # Load the state dict to CPU first, then move to the correct device
+        state_dict = torch.load(filepath, map_location=torch.device('cpu'))
+        self.model.load_state_dict(state_dict)
+        self.model.to(self.device)
+

@@ -1,18 +1,15 @@
 import os
-import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 from datetime import datetime
-
-# Local imports
 from utils import download_stock_data, create_features
 from environment import TradingEnvironment
 from agent import DQNAgent
 
-def train_agent(symbol, start_date, end_date, episodes, batch_size, window_size):
+
+def train_agent(symbol: str, start_date: str, end_date: str, episodes: int, batch_size: int, window_size: int) -> DQNAgent:
     """
     Train the DQN agent on historical stock data.
-    
     Args:
         symbol (str): Stock ticker symbol
         start_date (str): Start date in format 'YYYY-MM-DD'
@@ -20,7 +17,6 @@ def train_agent(symbol, start_date, end_date, episodes, batch_size, window_size)
         episodes (int): Number of training episodes
         batch_size (int): Batch size for training
         window_size (int): Window size for state representation
-        
     Returns:
         DQNAgent: Trained agent
     """
@@ -34,7 +30,11 @@ def train_agent(symbol, start_date, end_date, episodes, batch_size, window_size)
     env = TradingEnvironment(data, window_size=window_size)
     
     # Create agent
-    state_size = window_size * 4  # 4 features per time step
+    # state_size = window_size * 4  # 4 features per time step
+    features_per_timestep = 4
+    base_state_size = window_size * features_per_timestep
+    position_features = 2  # For holdings flag and normalized balance
+    state_size = base_state_size + position_features
     action_size = 3  # HOLD, BUY, SELL
     agent = DQNAgent(state_size, action_size)
     
@@ -73,6 +73,10 @@ def train_agent(symbol, start_date, end_date, episodes, batch_size, window_size)
         # Print progress
         print(f"Episode {episode+1}/{episodes}, Total Reward: {total_reward:.2f}, Epsilon: {agent.epsilon:.4f}")
         
+        # Decay epsilon
+        if agent.epsilon > agent.epsilon_min:
+            agent.epsilon *= agent.epsilon_decay
+            
         # Save model weights every 10 episodes
         if episode % 10 == 0:
             agent.save(f"models/weights/{symbol}_dqn_e{episode}.pth")
@@ -97,7 +101,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a DQN agent for stock trading')
     parser.add_argument('--symbol', type=str, default='AAPL', help='Stock symbol')
     parser.add_argument('--start_date', type=str, default='2020-01-01', help='Start date (YYYY-MM-DD)')
-    parser.add_argument('--end_date', type=str, default='2023-12-31', help='End date (YYYY-MM-DD)')
+    parser.add_argument('--end_date', type=str, default='2024-01-01', help='End date (YYYY-MM-DD)')
     parser.add_argument('--episodes', type=int, default=500, help='Number of training episodes')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
     parser.add_argument('--window_size', type=int, default=10, help='Window size for state representation')

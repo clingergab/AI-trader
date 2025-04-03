@@ -1,13 +1,14 @@
 from sklearn.preprocessing import StandardScaler
 from typing import Tuple
 import yfinance as yf
+from pandas import DataFrame
 import pandas as pd
 import numpy as np
 import os
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-def download_stock_data(symbol, start_date, end_date):
+def download_stock_data(symbol: str, start_date: str, end_date: str) -> DataFrame:
     """
     Download historical stock data from Yahoo Finance.
     
@@ -19,19 +20,58 @@ def download_stock_data(symbol, start_date, end_date):
     Returns:
         pandas.DataFrame: Historical stock data
     """
+    data_dir = 'data'
+    os.makedirs(data_dir, exist_ok=True)
+    # Create a filename based on the symbol and date range
+    filename = f"{symbol}_{start_date}_{end_date}.csv"
+    file_path = os.path.join(data_dir, filename)
+    
+    if os.path.exists(file_path):
+        print(f"Loading {symbol} data from cache: {file_path}")
+        df = pd.read_csv(file_path)
+        df = standardize_format(df)
+        return df
+    
+    # try:
     data = yf.download(symbol, start=start_date, end=end_date)
+    # For multiple symbols, extract just this symbol's data
+    if isinstance(data.columns, pd.MultiIndex):
+        data = data.xs(symbol, axis=1, level=1, drop_level=True)
+    data.to_csv(file_path, index=False)  # Save without pandas index
+    print(f"Data saved to: {file_path}")
+    
+    data = standardize_format(data)
     return data
 
-def create_features(data):
+def standardize_format(df):
+        # Make sure 'Date' is the index
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+            df.set_index('Date', inplace=True)
+        elif not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        
+        # Ensure all expected columns exist
+        expected_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+        for col in expected_columns:
+            if col not in df.columns:
+                df[col] = np.nan
+        
+        # Ensure all price/volume columns are numeric
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        return df
+    
+def create_features(data: DataFrame) -> DataFrame:
     """
     Calculate technical indicators to use as features.
-    
     Args:
         data (pandas.DataFrame): Historical stock data with OHLC prices
-        
     Returns:
         pandas.DataFrame: Data with added technical indicators
     """
+    
     # Simple Moving Averages
     data['SMA_5'] = data['Close'].rolling(window=5).mean()
     data['SMA_20'] = data['Close'].rolling(window=20).mean()
@@ -45,7 +85,7 @@ def create_features(data):
     
     return data
 
-def prepare_data(data: pd.DataFrame) -> Tuple[np.ndarray, StandardScaler]:
+def prepare_data(data: DataFrame) -> Tuple[np.ndarray, StandardScaler]:
     """Prepare the final dataset for model training using StandardScaler"""
     # Select features to use
     features = data[['SMA_5', 'SMA_20', 'Returns', 'Close', 'Volume']].values
@@ -57,7 +97,7 @@ def prepare_data(data: pd.DataFrame) -> Tuple[np.ndarray, StandardScaler]:
     return normalized_features, scaler
 
 
-def plot_trading_results(data, actions_taken, initial_balance=10000):
+def plot_trading_results(data: DataFrame, actions_taken: list, initial_balance: int=10000) -> Tuple[float, float]:
     """
     Plot trading results including price, actions, and portfolio value.
     
@@ -67,7 +107,7 @@ def plot_trading_results(data, actions_taken, initial_balance=10000):
         initial_balance (float): Starting balance for the trading simulation
         
     Returns:
-        None (displays plot)
+        Tuple[float, float]: A tuple containing (final_balance, return_percentage)
     """
     # Make sure actions_taken isn't longer than data
     if len(actions_taken) > len(data):
@@ -91,7 +131,7 @@ def plot_trading_results(data, actions_taken, initial_balance=10000):
     if buy_indices:
         ax2.scatter(
             data.index[buy_indices], 
-            [float(data['Close'].iloc[i].iloc[0]) for i in buy_indices], 
+            [float(data['Close'].iloc[i]) for i in buy_indices], 
             marker='^', color='green', label='Buy'
         )
     
@@ -99,7 +139,7 @@ def plot_trading_results(data, actions_taken, initial_balance=10000):
     if sell_indices:
         ax2.scatter(
             data.index[sell_indices], 
-            [float(data['Close'].iloc[i].iloc[0]) for i in sell_indices], 
+            [float(data['Close'].iloc[i]) for i in sell_indices], 
             marker='v', color='red', label='Sell'
         )
     
@@ -113,7 +153,7 @@ def plot_trading_results(data, actions_taken, initial_balance=10000):
     holdings = 0
     
     for i in range(len(actions_taken)):
-        price = float(data['Close'].iloc[i].iloc[0])
+        price = float(data['Close'].iloc[i])
         
         if i < len(actions_taken):
             action = actions_taken[i]
@@ -155,10 +195,9 @@ def plot_trading_results(data, actions_taken, initial_balance=10000):
     
     return portfolio_value[-1], final_return
 
-def save_results(model_name, symbol, start_date, end_date, final_balance, return_pct):
+def save_results(model_name: str, symbol: str, start_date: str, end_date: str, final_balance: float, return_pct: float) -> None:
     """
     Save trading results to a log file.
-    
     Args:
         model_name (str): Name of the model used
         symbol (str): Stock ticker symbol
@@ -166,7 +205,6 @@ def save_results(model_name, symbol, start_date, end_date, final_balance, return
         end_date (str): End date of evaluation period
         final_balance (float): Final portfolio value
         return_pct (float): Percentage return
-        
     Returns:
         None
     """

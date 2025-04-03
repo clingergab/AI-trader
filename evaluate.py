@@ -1,25 +1,18 @@
 import argparse
-import torch
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime
 
-# Local imports
+from pandas import DataFrame
 from utils import download_stock_data, create_features, plot_trading_results, save_results
 from environment import TradingEnvironment
 from agent import DQNAgent
 
-def evaluate_agent(agent, data, window_size=10, initial_balance=10000):
+def evaluate_agent(agent: DQNAgent, data: DataFrame, window_size=10, initial_balance=10000) -> tuple[float, float, list]:
     """
     Evaluate a trained agent on historical stock data.
-    
     Args:
         agent (DQNAgent): Trained agent
         data (pandas.DataFrame): Historical stock data with technical indicators
         window_size (int): Window size for state representation
         initial_balance (float): Initial balance for trading
-        
     Returns:
         tuple: (final_balance, return_percentage, actions_history)
     """
@@ -48,7 +41,7 @@ def evaluate_agent(agent, data, window_size=10, initial_balance=10000):
     actions_history = env.get_actions_history()
     
     # Get final portfolio value
-    final_price = float(data['Close'].iloc[-1].iloc[0])
+    final_price = float(data['Close'].iloc[-1])
     final_balance = env.balance + env.holdings * final_price
     
     # Calculate return
@@ -56,25 +49,24 @@ def evaluate_agent(agent, data, window_size=10, initial_balance=10000):
     
     return final_balance, return_percentage, actions_history
 
-def benchmark_buy_and_hold(data, initial_balance=10000):
+def benchmark_buy_and_hold(data: DataFrame, initial_balance=10000) -> tuple[float, float]:
     """
     Benchmark strategy: Buy and hold.
-    
     Args:
         data (pandas.DataFrame): Historical stock data
         initial_balance (float): Initial balance for trading
-        
     Returns:
         tuple: (final_balance, return_percentage)
     """
+    
     # Buy as many shares as possible at the beginning
-    initial_price = float(data['Close'].iloc[0].iloc[0])
+    initial_price = float(data['Close'].iloc[0])
     shares = initial_balance // initial_price
     cost = shares * initial_price
     remaining_balance = initial_balance - cost
     
     # Calculate final value
-    final_price = float(data['Close'].iloc[-1].iloc[0])
+    final_price = float(data['Close'].iloc[-1])
     final_balance = remaining_balance + shares * final_price
     
     # Calculate return
@@ -82,17 +74,15 @@ def benchmark_buy_and_hold(data, initial_balance=10000):
     
     return final_balance, return_percentage
 
-def main(symbol, model_path, test_start_date, test_end_date, window_size=10):
+def main(symbol, model_path, test_start_date, test_end_date, window_size=10) -> None:
     """
     Main evaluation function.
-    
     Args:
         symbol (str): Stock ticker symbol
         model_path (str): Path to the trained model
         test_start_date (str): Start date for testing in format 'YYYY-MM-DD'
         test_end_date (str): End date for testing in format 'YYYY-MM-DD'
         window_size (int): Window size for state representation
-        
     Returns:
         None
     """
@@ -103,12 +93,18 @@ def main(symbol, model_path, test_start_date, test_end_date, window_size=10):
     data = create_features(data)
     
     # Create agent
-    state_size = window_size * 4  # 4 features per time step
+    # state_size = window_size * 4  # 4 features per time step
+    features_per_timestep = 4
+    base_state_size = window_size * features_per_timestep
+    position_features = 2  # For holdings flag and normalized balance
+    state_size = base_state_size + position_features
     action_size = 3  # HOLD, BUY, SELL
     agent = DQNAgent(state_size, action_size)
     
     # Load trained model
     agent.load(model_path)
+
+    print(f"Model loaded. Sample parameters: {next(agent.model.parameters())[0][0:5].detach().cpu().numpy()}")
     
     # Evaluate agent
     final_balance, return_percentage, actions_history = evaluate_agent(
@@ -139,8 +135,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evaluate a trained DQN agent for stock trading')
     parser.add_argument('--symbol', type=str, default='AAPL', help='Stock symbol')
     parser.add_argument('--model_path', type=str, required=True, help='Path to the trained model')
-    parser.add_argument('--start_date', type=str, default='2024-01-01', help='Test start date (YYYY-MM-DD)')
-    parser.add_argument('--end_date', type=str, default='2024-12-31', help='Test end date (YYYY-MM-DD)')
+    parser.add_argument('--start_date', type=str, default='2024-01-02', help='Test start date (YYYY-MM-DD)')
+    parser.add_argument('--end_date', type=str, default='2025-01-01', help='Test end date (YYYY-MM-DD)')
     parser.add_argument('--window_size', type=int, default=10, help='Window size for state representation')
     
     args = parser.parse_args()

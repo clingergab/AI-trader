@@ -1,5 +1,0 @@
-Model: AAPL_dqn_final_20250326_080525
-Symbol: AAPL
-Period: 2024-01-01 to 2024-12-31
-Final Balance: $13445.28
-Return: 34.45%
